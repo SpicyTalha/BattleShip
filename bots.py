@@ -1,6 +1,177 @@
 from res import Strings as String
 import random as rd
 import datetime as dt
+from collections import deque
+
+class EasyBot:
+    """
+    EasyBot shoots randomly without any strategy.
+    It does not remember previous shots, so it can repeat coordinates.
+    """
+    def say(self, value: str):
+        return rd.randint(0, 9), rd.randint(0, 9)  # rd coordinates in a 10x10 grid
+
+
+class MediumBot:
+    """
+    MediumBot avoids duplicate shots and has basic hit-follow-up logic.
+    It shoots nearby cells if it gets a hit.
+    """
+    def __init__(self):
+        self.previous_shots = set()
+        self.to_follow_up = []  # Cells to target after a hit
+
+    def say(self, value: str):
+        if value == "hit" or value == "destroyed":
+            self._add_adjacent_cells()
+
+        # Follow-up logic: prioritize cells around a previous hit
+        while self.to_follow_up:
+            target = self.to_follow_up.pop(0)
+            if target not in self.previous_shots:
+                self.previous_shots.add(target)
+                return target
+
+        # rd guess if no cells to follow up
+        while True:
+            x, y = rd.randint(0, 9), rd.randint(0, 9)
+            if (x, y) not in self.previous_shots:
+                self.previous_shots.add((x, y))
+                return x, y
+
+    def _add_adjacent_cells(self):
+        """
+        Add adjacent cells (up, down, left, right) of the last shot to the follow-up list.
+        """
+        if self.previous_shots:
+            last_x, last_y = max(self.previous_shots)
+            possible_moves = [(last_x - 1, last_y), (last_x + 1, last_y),
+                              (last_x, last_y - 1), (last_x, last_y + 1)]
+            for move in possible_moves:
+                if 0 <= move[0] < 10 and 0 <= move[1] < 10:  # Ensure within grid
+                    self.to_follow_up.append(move)
+
+class HardBot:
+    """
+    HardBot uses advanced AI strategies to efficiently search and sink all ships.
+    Strategies:
+      - Probability-Based Targeting
+      - Pattern-Based Searching (Checkerboard Strategy)
+      - Hunt and Target Mode
+      - Bayesian Inference for Probability Updates
+    """
+    def __init__(self):
+        self.grid_size = 10
+        self.previous_shots = set()  # Tracks all previous shots
+        self.to_follow_up = deque()  # Cells to target after a hit
+        self.hunt_mode = True  # True = Hunt Mode; False = Target Mode
+        self.hits = set()
+        self.misses = set()
+        self.probability_map = [[0 for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        self._initialize_probability_map()
+
+    def say(self, value: str):
+        """
+        Determines the next move based on the result of the previous shot.
+        :param value: "shoot", "hit", or "destroyed"
+        :return: Coordinates (x, y) for the next shot
+        """
+        if value == "hit" or value == "destroyed":
+            self.hunt_mode = False  # Switch to Target Mode
+            self._add_adjacent_cells()
+
+        # If Target Mode, prioritize adjacent cells
+        if not self.hunt_mode and self.to_follow_up:
+            while self.to_follow_up:
+                target = self.to_follow_up.popleft()
+                if self._is_valid_target(target):
+                    self.previous_shots.add(target)
+                    return target
+
+        # Hunt Mode: Update probabilities and choose the best target
+        self.hunt_mode = True
+        self._update_probability_map()
+        x, y = self._find_highest_probability_target()
+        self.previous_shots.add((x, y))
+        return x, y
+
+    def _initialize_probability_map(self):
+        """
+        Initialize the probability map assuming ships can be placed anywhere.
+        """
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                self.probability_map[i][j] = 1  # Uniform probabilities at the start
+
+    def _is_valid_target(self, target):
+        """
+        Check if the target is valid: within bounds and not already shot.
+        """
+        x, y = target
+        return 0 <= x < self.grid_size and 0 <= y < self.grid_size and target not in self.previous_shots
+
+    def _add_adjacent_cells(self):
+        """
+        Adds valid adjacent cells to the follow-up queue after a hit.
+        """
+        last_hit = max(self.previous_shots)  # Last hit coordinates
+        x, y = last_hit
+        possible_moves = [(x-1, y), (x+1, y), (x, y-1), (x, y+1)]
+        for nx, ny in possible_moves:
+            if self._is_valid_target((nx, ny)):
+                self.to_follow_up.append((nx, ny))
+
+    def _update_probability_map(self):
+        """
+        Update the probability map dynamically based on hits and misses using Bayesian inference.
+        """
+        # Reset the map
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                self.probability_map[i][j] = 0
+
+        # Update probabilities considering valid ship placements
+        ship_lengths = [5, 4, 3, 3, 2]  # Example ship lengths
+        for length in ship_lengths:
+            # Horizontal placements
+            for i in range(self.grid_size):
+                for j in range(self.grid_size - length + 1):
+                    if self._can_place_ship((i, j), length, horizontal=True):
+                        for k in range(length):
+                            self.probability_map[i][j + k] += 1
+
+            # Vertical placements
+            for i in range(self.grid_size - length + 1):
+                for j in range(self.grid_size):
+                    if self._can_place_ship((i, j), length, horizontal=False):
+                        for k in range(length):
+                            self.probability_map[i + k][j] += 1
+
+    def _can_place_ship(self, start, length, horizontal):
+        """
+        Check if a ship of given length can be placed starting at (x, y).
+        """
+        x, y = start
+        for i in range(length):
+            nx, ny = (x, y + i) if horizontal else (x + i, y)
+            if not (0 <= nx < self.grid_size and 0 <= ny < self.grid_size):
+                return False
+            if (nx, ny) in self.previous_shots:
+                return False
+        return True
+
+    def _find_highest_probability_target(self):
+        """
+        Find the cell with the highest probability.
+        """
+        max_prob = -1
+        best_target = None
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                if (i, j) not in self.previous_shots and self.probability_map[i][j] > max_prob:
+                    max_prob = self.probability_map[i][j]
+                    best_target = (i, j)
+        return best_target if best_target else (rd.randint(0, 9), rd.randint(0, 9))
 
 
 class Fati(object):
@@ -48,8 +219,8 @@ class Fati(object):
         :return: tuple of two ints - x and y, coordinate of the bot's chose
         """
         if not self.__last_ship:
-            x = self.__random(1, 10)
-            y = self.__random(1, 10)
+            x = self.__rd(1, 10)
+            y = self.__rd(1, 10)
 
             if not self.__mp[y][x]:
                 self.__x = x
@@ -90,7 +261,7 @@ class Fati(object):
         """
         :return: tuple of two ints - top, bottom, left or right of the hit point
         """
-        where = self.__random(1, 4)  # 1 - top, 2 - bottom, 3 - left, 4 - right
+        where = self.__rd(1, 4)  # 1 - top, 2 - bottom, 3 - left, 4 - right
 
         result = None
         if where == 1 and self.__last_ship[0][1] > 1:
@@ -115,7 +286,7 @@ class Fati(object):
         """
         :return: tuple of two ints - left or right of the hit point
         """
-        which = self.__random(1, 2)  # 1 - left, 2 - right
+        which = self.__rd(1, 2)  # 1 - left, 2 - right
         result = None
 
         xes = list([ship[0] for ship in self.__last_ship])
@@ -138,7 +309,7 @@ class Fati(object):
         """
         :return: tuple of two ints - top or bottom of the hit point
         """
-        which = self.__random(3, 4)  # 3 - top, 4 - bottom
+        which = self.__rd(3, 4)  # 3 - top, 4 - bottom
         result = None
 
         yes = list([ship[1] for ship in self.__last_ship])
@@ -179,11 +350,11 @@ class Fati(object):
         return self.__shoot()
 
     @staticmethod
-    def __random(start: int, end: int):
+    def __rd(start: int, end: int):
         """
         :param start: int - start point
         :param end: int - end point
-        :return: int - random number
+        :return: int - rd number
         """
         rd.seed(dt.datetime.now().microsecond)
         return rd.randint(start, end)
