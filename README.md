@@ -1,10 +1,6 @@
 # BattleShip-game-in-Python
 A demo game in python using tkinter.
 
-<img src="https://github.com/chorobaev/BattleShip-game-in-Python/blob/master/sreenshots/main.jpg"/>
-
-More screenshots [here](https://github.com/chorobaev/BattleShip-game-in-Python/tree/master/sreenshots).
-
 ## Requirements: 
   1. Python 3.+.
   2. PNG viewing in the GUI: Python Imaging Library (**PIL**) *ImageTk*. 
@@ -40,8 +36,3 @@ More screenshots [here](https://github.com/chorobaev/BattleShip-game-in-Python/t
   5. Go to `class Main` > `def on_game_back_button_pressed(self):`, 
   6. Change the line `self.__bot = bots.Fati()` to `self.__bot = bots.CustomBot()` 
   (here *"CustomBot"* the same as within step **5**)
-  
-  
-*If you have any questions, feel free to ask chorobaev.nurbol@gmail.com =)*
-
-Copyright (c) 2018 Nurbol Chorobaev 
