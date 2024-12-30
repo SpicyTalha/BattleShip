@@ -1,5 +1,7 @@
 from tkinter import *
 from tkinter import messagebox as msb
+import os
+import json
 
 import frames
 import res
@@ -12,7 +14,6 @@ class Main(object):
     time = 0
 
     def __init__(self):
-
         self.__root = Tk()
         self.__root.title(res.Strings.APP_NAME)
         self.__root.minsize(res.Dimensions.APP_MIN_WIDTH,
@@ -26,7 +27,11 @@ class Main(object):
         self.__arrange_frame = None
         self.__game_frame = None
         self.__menu_frame.place_frame()
-        self.__bot = bots.HardBot()
+        self.__bot = bots.BattleshipBot()
+
+        # ML Reinforcement data file
+        self.__reinforcement_file = "reinforcement_data.json"
+        self.__load_reinforcement_data()
 
         # Setting HelpFrame
         self.__help_frame = frames.HelpFrame(self)
@@ -72,6 +77,7 @@ class Main(object):
         dialog = msb.askokcancel(res.Strings.APP_NAME, res.Strings.MenuFrame.EXIT_DIALOG_MSG)
 
         if dialog:
+            self.__save_reinforcement_data()
             self.__root.destroy()
 
     # Arrange frame
@@ -112,7 +118,7 @@ class Main(object):
         self.__game_frame.displace_frame()
         self.__menu_frame.place_frame()
         self.__bot = None
-        self.__bot = bots.HardBot()
+        self.__bot = bots.BattleshipBot()
 
     def get_shoot(self, sms: str):
         """
@@ -122,7 +128,29 @@ class Main(object):
         """
         return self.__bot.say(sms)
 
+    def __load_reinforcement_data(self):
+        if os.path.exists(self.__reinforcement_file):
+            try:
+                with open(self.__reinforcement_file, "r") as file:
+                    data = json.load(file)
+                    self.__bot.load_reinforcement_data()  # No need to pass data here
+                print("Reinforcement data loaded successfully.")
+            except Exception as e:
+                print(f"Error loading reinforcement data: {e}")
+        else:
+            print("Reinforcement file not found. Starting fresh.")
 
+    def __save_reinforcement_data(self):
+        try:
+            data = self.__bot.get_reinforcement_data()  # Use the public getter
+            with open(self.__reinforcement_file, "w") as file:
+                json.dump(data, file)
+            print("Reinforcement data saved successfully.")
+        except Exception as e:
+            print(f"Error saving reinforcement data: {e}")
+
+
+
+# Run the application
 master = Main()
-
 master.start()

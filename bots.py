@@ -3,6 +3,8 @@ import random as rd
 import datetime as dt
 from collections import deque
 import numpy as np
+import os
+import json
 
 class EasyBot:
     """
@@ -439,3 +441,159 @@ class Fati(object):
             for j in range(1, 11):
                 print(self.__mp[i][j], end=" ")
             print()
+
+class BattleshipBot:
+    def __init__(self):
+        self.__x = 0
+        self.__y = 0
+        self.__last_ship = []
+        self.__time = 0
+        self.__hunt_mode = True
+        self.__mp = [[False for _ in range(12)] for _ in range(12)]  # Track visited cells
+        self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Q-values for reinforcement learning
+        self.__total_shots = 0
+
+        # Ship information
+        self.__ship_lengths = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.__remaining_ships = {4: 1, 3: 2, 2: 3, 1: 4}  # Dynamic tracking
+
+        # Reinforcement data (if loading from a file)
+        self.__reinforcement_file = "reinforcement_data.json"
+        self.load_reinforcement_data()  # Ensure this doesn't raise an error
+
+    def say(self, sms: str):
+        print(f"Bot received command: {sms}")
+        result = None
+
+        if sms == String.GameFrame.BOT_SHOOT:
+            print("Bot is trying to shoot...")
+            result = self.__shoot()
+        elif sms == String.GameFrame.BOT_HIT:
+            if self.__time != 0:
+                self.__last_ship.append((self.__x, self.__y))
+                self.__hunt_mode = False
+                self.__reward(10)  # Reward for a hit
+            result = self.__hit()
+        elif sms == String.GameFrame.BOT_DESTROYED:
+            self.__last_ship.append((self.__x, self.__y))
+            self.__update_remaining_ships()
+            self.__reward(50)  # High reward for destroying a ship
+            result = self.__destroyed()
+        else:
+            self.__reward(-1)  # Small penalty for invalid action
+
+        if result is None:
+            print(f"Error: Failed to compute a valid move for sms: {sms}")
+            raise ValueError(f"Failed to compute a valid move for sms: {sms}")
+        
+        print(f"Bot's decision for shoot: {result}")
+        self.__time += 1
+        self.__total_shots += 1
+        return result
+
+    def __shoot(self):
+        if self.__hunt_mode:
+            print(f"Hunting mode with Q-map: {self.__Q_map}")
+            return self.__hunt()
+        else:
+            print(f"Targeting mode with last ship positions: {self.__last_ship}")
+            return self.__hit()
+
+    def __hunt(self):
+        max_q = max(max(row[1:11]) for row in self.__Q_map[1:11])
+        candidates = [(x, y) for x in range(1, 11) for y in range(1, 11)
+                      if not self.__mp[y][x] and self.__Q_map[y][x] == max_q]
+        if candidates:
+            self.__x, self.__y = rd.choice(candidates)  # Random among the best candidates
+        else:
+            self.__x, self.__y = self.__random_shoot()  # Fallback
+        self.__mp[self.__y][self.__x] = True
+        return self.__x, self.__y
+
+    def __hit(self):
+        result = ()
+        if len(self.__last_ship) == 1:
+            result = self.__get_one_of_four()
+        elif len(self.__last_ship) > 1:
+            if self.__last_ship[0][0] != self.__last_ship[1][0]:  # Horizontal
+                result = self.__get_right_or_left()
+            else:  # Vertical
+                result = self.__get_top_or_bottom()
+        self.__x, self.__y = result
+        self.__mp[self.__y][self.__x] = True
+        return result
+
+    def __destroyed(self):
+        for x, y in self.__last_ship:
+            for dx, dy in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
+                nx, ny = x + dx, y + dy
+                if 1 <= nx <= 10 and 1 <= ny <= 10:
+                    self.__mp[ny][nx] = True
+        self.__last_ship = []
+        self.__hunt_mode = True
+        return self.__shoot()
+
+    def __get_one_of_four(self):
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        rd.shuffle(directions)
+        for dx, dy in directions:
+            nx, ny = self.__last_ship[0][0] + dx, self.__last_ship[0][1] + dy
+            if 1 <= nx <= 10 and 1 <= ny <= 10 and not self.__mp[ny][nx]:
+                return nx, ny
+        return self.__random_shoot()
+
+    def __get_right_or_left(self):
+        xes = sorted([ship[0] for ship in self.__last_ship])
+        for nx in [xes[0] - 1, xes[-1] + 1]:
+            if 1 <= nx <= 10 and not self.__mp[self.__last_ship[0][1]][nx]:
+                return nx, self.__last_ship[0][1]
+        return self.__random_shoot()
+
+    def __get_top_or_bottom(self):
+        yes = sorted([ship[1] for ship in self.__last_ship])
+        for ny in [yes[0] - 1, yes[-1] + 1]:
+            if 1 <= ny <= 10 and not self.__mp[ny][self.__last_ship[0][0]]:
+                return self.__last_ship[0][0], ny
+        return self.__random_shoot()
+
+    def __random_shoot(self):
+        available_cells = [(x, y) for y in range(1, 11) for x in range(1, 11) if not self.__mp[y][x]]
+        print(f"Available cells for shooting: {available_cells}")
+        if not available_cells:
+            print("ERROR: No available cells to shoot at.")
+            self.__mp = [[False for _ in range(12)] for _ in range(12)]  # Reset visited cells
+            self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Reset Q-values
+            print("Bot state has been reset due to no available cells.")
+            return (1, 1)  # Default fallback position
+        available_cells.sort(key=lambda cell: self.__Q_map[cell[1]][cell[0]], reverse=True)
+        return available_cells[0]
+
+    def __reward(self, value):
+        self.__Q_map[self.__y][self.__x] += value
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = self.__x + dx, self.__y + dy
+            if 1 <= nx <= 10 and 1 <= ny <= 10:
+                self.__Q_map[ny][nx] += value / 2
+
+    def __update_remaining_ships(self):
+        ship_len = len(self.__last_ship)
+        if ship_len in self.__remaining_ships:
+            self.__remaining_ships[ship_len] -= 1
+            if self.__remaining_ships[ship_len] == 0:
+                del self.__remaining_ships[ship_len]
+
+    def load_reinforcement_data(self):
+        try:
+            with open(self.__reinforcement_file, "r") as file:
+                self.__Q_map = json.load(file)
+            print("Reinforcement data loaded:", self.__Q_map)
+        except FileNotFoundError:
+            print("No reinforcement data found, initializing Q_map with default values.")
+            self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Initialize with non-zero values
+
+    def save_reinforcement_data(self):
+        with open(self.__reinforcement_file, "w") as file:
+            json.dump(self.__Q_map, file)
+
+    def get_reinforcement_data(self):
+        return self.__Q_map
