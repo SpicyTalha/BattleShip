@@ -442,9 +442,6 @@ class Fati(object):
                 print(self.__mp[i][j], end=" ")
             print()
 
-import random as rd
-import json
-
 class BattleshipBot:
     def __init__(self):
         self.__x = 0
@@ -456,7 +453,9 @@ class BattleshipBot:
         self.__Q_map = [[0 for _ in range(12)] for _ in range(12)]  # Q-values for reinforcement learning
         self.__total_shots = 0
         self.__sequential_index = 0  # Index for sequential targeting
-        self.__sequential_mode = True  # Toggle for sequential shooting
+        self.__sequential_mode = False  # Toggle for sequential shooting
+        self.__checkboard_mode = True  # Toggle for checkboard shooting
+        self.__checkboard_index = 0  # Index for checkboard targeting
 
         # Ship information
         self.__ship_lengths = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
@@ -469,6 +468,10 @@ class BattleshipBot:
     def set_sequential_mode(self, mode: bool):
         """Set the mode for sequential shooting."""
         self.__sequential_mode = mode
+
+    def set_checkboard_mode(self, mode: bool):
+        """Set the mode for checkboard shooting."""
+        self.__checkboard_mode = mode
 
     def say(self, sms: str):
         print(f"Bot received command: {sms}")
@@ -514,7 +517,9 @@ class BattleshipBot:
         if candidates and max_q > 0:
             self.__x, self.__y = rd.choice(candidates)
         else:
-            if self.__sequential_mode:
+            if self.__checkboard_mode:
+                self.__x, self.__y = self.__checkboard_shoot()
+            elif self.__sequential_mode:
                 self.__x, self.__y = self.__sequential_shoot()
             else:
                 self.__x, self.__y = self.__random_shoot()
@@ -537,6 +542,29 @@ class BattleshipBot:
         self.__sequential_index = 0
         self.__mp = [[False for _ in range(12)] for _ in range(12)]
         return self.__sequential_shoot()
+
+    def __checkboard_shoot(self):
+        # First pass: Checkboard pattern
+        for y in range(1, 11):  # Rows
+            for x in range(1, 11):  # Columns
+                # Checkboard pattern: (x + y) % 2 == 0
+                if (x + y) % 2 == 0 and not self.__mp[y][x]:
+                    self.__x, self.__y = x, y
+                    self.__mp[y][x] = True
+                    return x, y
+
+        # Second pass: Fill remaining cells
+        for y in range(1, 11):  # Rows
+            for x in range(1, 11):  # Columns
+                if not self.__mp[y][x]:
+                    self.__x, self.__y = x, y
+                    self.__mp[y][x] = True
+                    return x, y
+
+        # Reset if all cells are visited (should not happen normally)
+        self.__mp = [[False for _ in range(12)] for _ in range(12)]
+        return self.__checkboard_shoot()
+
 
     def __hit(self):
         result = ()
