@@ -450,16 +450,16 @@ class BattleshipBot:
         self.__time = 0
         self.__hunt_mode = True
         self.__mp = [[False for _ in range(12)] for _ in range(12)]  # Track visited cells
-        self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Q-values for reinforcement learning
+        self.__Q_map = [[0 for _ in range(12)] for _ in range(12)]  # Q-values for reinforcement learning
         self.__total_shots = 0
 
         # Ship information
         self.__ship_lengths = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.__remaining_ships = {4: 1, 3: 2, 2: 3, 1: 4}  # Dynamic tracking
 
-        # Reinforcement data (if loading from a file)
+        # Reinforcement data file
         self.__reinforcement_file = "reinforcement_data.json"
-        self.load_reinforcement_data()  # Ensure this doesn't raise an error
+        self.load_reinforcement_data()
 
     def say(self, sms: str):
         print(f"Bot received command: {sms}")
@@ -485,7 +485,7 @@ class BattleshipBot:
         if result is None:
             print(f"Error: Failed to compute a valid move for sms: {sms}")
             raise ValueError(f"Failed to compute a valid move for sms: {sms}")
-        
+
         print(f"Bot's decision for shoot: {result}")
         self.__time += 1
         self.__total_shots += 1
@@ -493,20 +493,19 @@ class BattleshipBot:
 
     def __shoot(self):
         if self.__hunt_mode:
-            print(f"Hunting mode with Q-map: {self.__Q_map}")
             return self.__hunt()
         else:
-            print(f"Targeting mode with last ship positions: {self.__last_ship}")
             return self.__hit()
 
     def __hunt(self):
-        max_q = max(max(row[1:11]) for row in self.__Q_map[1:11])
+        max_q = max(self.__Q_map[y][x] for y in range(1, 11) for x in range(1, 11) if not self.__mp[y][x])
         candidates = [(x, y) for x in range(1, 11) for y in range(1, 11)
-                      if not self.__mp[y][x] and self.__Q_map[y][x] == max_q]
+                  if not self.__mp[y][x] and self.__Q_map[y][x] == max_q]
+
         if candidates:
-            self.__x, self.__y = rd.choice(candidates)  # Random among the best candidates
+            self.__x, self.__y = rd.choice(candidates)
         else:
-            self.__x, self.__y = self.__random_shoot()  # Fallback
+            self.__x, self.__y = self.__random_shoot()
         self.__mp[self.__y][self.__x] = True
         return self.__x, self.__y
 
@@ -558,22 +557,22 @@ class BattleshipBot:
 
     def __random_shoot(self):
         available_cells = [(x, y) for y in range(1, 11) for x in range(1, 11) if not self.__mp[y][x]]
-        print(f"Available cells for shooting: {available_cells}")
+
         if not available_cells:
-            print("ERROR: No available cells to shoot at.")
-            self.__mp = [[False for _ in range(12)] for _ in range(12)]  # Reset visited cells
-            self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Reset Q-values
-            print("Bot state has been reset due to no available cells.")
-            return (1, 1)  # Default fallback position
-        available_cells.sort(key=lambda cell: self.__Q_map[cell[1]][cell[0]], reverse=True)
-        return available_cells[0]
+            self.__mp = [[False for _ in range(12)] for _ in range(12)]
+            self.__Q_map = [[0 for _ in range(12)] for _ in range(12)]
+            return (1, 1)
+
+        return rd.choice(available_cells)
 
     def __reward(self, value):
-        self.__Q_map[self.__y][self.__x] += value
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = self.__x + dx, self.__y + dy
-            if 1 <= nx <= 10 and 1 <= ny <= 10:
-                self.__Q_map[ny][nx] += value / 2
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                nx, ny = self.__x + dx, self.__y + dy
+                if 1 <= nx <= 10 and 1 <= ny <= 10:
+                    self.__Q_map[ny][nx] += value / (1 + abs(dx) + abs(dy))  # Decay reward by distance
+        self.save_reinforcement_data()  # Save Q-map after updating
+
 
     def __update_remaining_ships(self):
         ship_len = len(self.__last_ship)
@@ -588,8 +587,7 @@ class BattleshipBot:
                 self.__Q_map = json.load(file)
             print("Reinforcement data loaded:", self.__Q_map)
         except FileNotFoundError:
-            print("No reinforcement data found, initializing Q_map with default values.")
-            self.__Q_map = [[1 for _ in range(12)] for _ in range(12)]  # Initialize with non-zero values
+            self.__Q_map = [[0 for _ in range(12)] for _ in range(12)]
 
     def save_reinforcement_data(self):
         with open(self.__reinforcement_file, "w") as file:
