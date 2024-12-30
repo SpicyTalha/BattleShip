@@ -623,12 +623,21 @@ class BattleshipBot:
         return rd.choice(available_cells)
 
     def __reward(self, value):
+    # Give reward to the current cell
+        self.__Q_map[self.__y][self.__x] += value  # Full reward for the current position
+
+        # Distribute reward to neighboring cells
         for dx in range(-1, 2):
             for dy in range(-1, 2):
                 nx, ny = self.__x + dx, self.__y + dy
                 if 1 <= nx <= 10 and 1 <= ny <= 10:
-                    self.__Q_map[ny][nx] += value / (1 + abs(dx) + abs(dy))  # Decay reward by distance
+                    # Decay reward based on distance from current position
+                    distance = abs(dx) + abs(dy)
+                    if distance > 0:
+                        self.__Q_map[ny][nx] += value / (1 + distance)  # Decay reward for neighbors
+
         self.save_reinforcement_data()  # Save Q-map after updating
+
 
     def __update_remaining_ships(self):
         ship_len = len(self.__last_ship)
