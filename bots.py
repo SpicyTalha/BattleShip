@@ -2,6 +2,7 @@ from res import Strings as String
 import random as rd
 import datetime as dt
 from collections import deque
+import numpy as np
 
 class EasyBot:
     """
@@ -51,128 +52,201 @@ class MediumBot:
                 if 0 <= move[0] < 10 and 0 <= move[1] < 10:  # Ensure within grid
                     self.to_follow_up.append(move)
 
-class HardBot:
-    """
-    HardBot uses advanced AI strategies to efficiently search and sink all ships.
-    Strategies:
-      - Probability-Based Targeting
-      - Pattern-Based Searching (Checkerboard Strategy)
-      - Hunt and Target Mode
-      - Bayesian Inference for Probability Updates
-    """
+class HardBot(object):
+
     def __init__(self):
-        self.grid_size = 10
-        self.previous_shots = set()  # Tracks all previous shots
-        self.to_follow_up = deque()  # Cells to target after a hit
-        self.hunt_mode = True  # True = Hunt Mode; False = Target Mode
-        self.hits = set()
-        self.misses = set()
-        self.probability_map = [[0 for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        self._initialize_probability_map()
+        self.__x = 0
+        self.__y = 0
+        self.__last_ship = []
+        self.__time = 0
+        self.__prob_map = [[0 for _ in range(12)] for _ in range(12)]
+        self.__total_shots = 0
+        self.__hunt_mode = True
 
-    def say(self, value: str):
-        """
-        Determines the next move based on the result of the previous shot.
-        :param value: "shoot", "hit", or "destroyed"
-        :return: Coordinates (x, y) for the next shot
-        """
-        if value == "hit" or value == "destroyed":
-            self.hunt_mode = False  # Switch to Target Mode
-            self._add_adjacent_cells()
+        # Initialize hit map
+        self.__mp = [[False for _ in range(12)] for _ in range(12)]
 
-        # If Target Mode, prioritize adjacent cells
-        if not self.hunt_mode and self.to_follow_up:
-            while self.to_follow_up:
-                target = self.to_follow_up.popleft()
-                if self._is_valid_target(target):
-                    self.previous_shots.add(target)
-                    return target
+    def say(self, sms: str):
+        """
+        :param sms: str - the command, what should do the bot
+        :return: tuple of two int - (x, y) coordinates
+        """
+        result = None
+        if sms == String.GameFrame.BOT_SHOOT:
+            result = self.__shoot()
 
-        # Hunt Mode: Update probabilities and choose the best target
-        self.hunt_mode = True
-        self._update_probability_map()
-        x, y = self._find_highest_probability_target()
-        self.previous_shots.add((x, y))
-        return x, y
+        elif sms == String.GameFrame.BOT_HIT:
+            if self.__time != 0:
+                self.__last_ship.append((self.__x, self.__y))
+                self.__hunt_mode = False
+            result = self.__hit()
 
-    def _initialize_probability_map(self):
-        """
-        Initialize the probability map assuming ships can be placed anywhere.
-        """
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                self.probability_map[i][j] = 1  # Uniform probabilities at the start
+        elif sms == String.GameFrame.BOT_DESTROYED:
+            self.__last_ship.append((self.__x, self.__y))
+            result = self.__destroyed()
 
-    def _is_valid_target(self, target):
-        """
-        Check if the target is valid: within bounds and not already shot.
-        """
-        x, y = target
-        return 0 <= x < self.grid_size and 0 <= y < self.grid_size and target not in self.previous_shots
+        self.__time += 1
+        self.__total_shots += 1
+        print(">>> Bot1: shoot #%d - (%d, %d)" % (self.__time, result[0], result[1]))
+        return result
 
-    def _add_adjacent_cells(self):
+    def __shoot(self):
         """
-        Adds valid adjacent cells to the follow-up queue after a hit.
+        Calls when the bot receives "shoot" command
+        :return: tuple of two ints - x and y, coordinate of the bot's choice
         """
-        last_hit = max(self.previous_shots)  # Last hit coordinates
-        x, y = last_hit
-        possible_moves = [(x-1, y), (x+1, y), (x, y-1), (x, y+1)]
-        for nx, ny in possible_moves:
-            if self._is_valid_target((nx, ny)):
-                self.to_follow_up.append((nx, ny))
+        if self.__hunt_mode:
+            return self.__hunt()
+        else:
+            return self.__hit()
 
-    def _update_probability_map(self):
+    def __hunt(self):
         """
-        Update the probability map dynamically based on hits and misses using Bayesian inference.
+        Hunt mode: select cells in a checkerboard pattern for efficiency.
         """
-        # Reset the map
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                self.probability_map[i][j] = 0
+        candidates = [(x, y) for x in range(1, 11) for y in range(1, 11) if not self.__mp[y][x] and (x + y) % 2 == 0]
+        if candidates:
+            self.__x, self.__y = rd.choice(candidates)
+        else:
+            self.__x, self.__y = self.__random_shoot()
 
-        # Update probabilities considering valid ship placements
-        ship_lengths = [5, 4, 3, 3, 2]  # Example ship lengths
-        for length in ship_lengths:
-            # Horizontal placements
-            for i in range(self.grid_size):
-                for j in range(self.grid_size - length + 1):
-                    if self._can_place_ship((i, j), length, horizontal=True):
-                        for k in range(length):
-                            self.probability_map[i][j + k] += 1
+        self.__mp[self.__y][self.__x] = True
+        self.__update_probability_map()
+        self.__print_map()
+        return self.__x, self.__y
 
-            # Vertical placements
-            for i in range(self.grid_size - length + 1):
-                for j in range(self.grid_size):
-                    if self._can_place_ship((i, j), length, horizontal=False):
-                        for k in range(length):
-                            self.probability_map[i + k][j] += 1
+    def __random_shoot(self):
+        while True:
+            x = self.__rd(1, 10)
+            y = self.__rd(1, 10)
+            if not self.__mp[y][x]:
+                return x, y
 
-    def _can_place_ship(self, start, length, horizontal):
+    def __hit(self):
         """
-        Check if a ship of given length can be placed starting at (x, y).
+        Calls when the bot receives "hit" command
+        :return: tuple of two ints - x and y, coordinate of the bot's choice
         """
-        x, y = start
-        for i in range(length):
-            nx, ny = (x, y + i) if horizontal else (x + i, y)
-            if not (0 <= nx < self.grid_size and 0 <= ny < self.grid_size):
-                return False
-            if (nx, ny) in self.previous_shots:
-                return False
-        return True
+        result = ()
 
-    def _find_highest_probability_target(self):
-        """
-        Find the cell with the highest probability.
-        """
-        max_prob = -1
-        best_target = None
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                if (i, j) not in self.previous_shots and self.probability_map[i][j] > max_prob:
-                    max_prob = self.probability_map[i][j]
-                    best_target = (i, j)
-        return best_target if best_target else (rd.randint(0, 9), rd.randint(0, 9))
+        if len(self.__last_ship) == 1:
+            result = self.__get_one_of_four()
 
+        elif len(self.__last_ship) > 1:
+            if self.__last_ship[0][0] != self.__last_ship[1][0]:  # Horizontal
+                result = self.__get_right_or_left()
+            else:  # Vertical
+                result = self.__get_top_or_bottom()
+
+        self.__x, self.__y = result
+        self.__mp[self.__y][self.__x] = True
+        self.__update_probability_map()
+        return result
+
+    def __get_one_of_four(self):
+        """
+        :return: tuple of two ints - top, bottom, left, or right of the hit point
+        """
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        rd.shuffle(directions)
+        for dx, dy in directions:
+            nx, ny = self.__last_ship[0][0] + dx, self.__last_ship[0][1] + dy
+            if 1 <= nx <= 10 and 1 <= ny <= 10 and not self.__mp[ny][nx]:
+                return nx, ny
+        return self.__random_shoot()
+
+    def __get_right_or_left(self):
+        """
+        :return: tuple of two ints - left or right of the hit point
+        """
+        xes = sorted([ship[0] for ship in self.__last_ship])
+        for nx in [xes[0] - 1, xes[-1] + 1]:
+            if 1 <= nx <= 10 and not self.__mp[self.__last_ship[0][1]][nx]:
+                return nx, self.__last_ship[0][1]
+        return self.__random_shoot()
+
+    def __get_top_or_bottom(self):
+        """
+        :return: tuple of two ints - top or bottom of the hit point
+        """
+        yes = sorted([ship[1] for ship in self.__last_ship])
+        for ny in [yes[0] - 1, yes[-1] + 1]:
+            if 1 <= ny <= 10 and not self.__mp[ny][self.__last_ship[0][0]]:
+                return self.__last_ship[0][0], ny
+        return self.__random_shoot()
+
+    def __destroyed(self):
+        """
+        Calls when the bot receives "destroyed" command
+        :return:
+        """
+        for x, y in self.__last_ship:
+            for dx, dy in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
+                nx, ny = x + dx, y + dy
+                if 1 <= nx <= 10 and 1 <= ny <= 10:
+                    self.__mp[ny][nx] = True
+
+        self.__last_ship = []
+        self.__hunt_mode = True
+        self.__update_probability_map()
+        return self.__shoot()
+
+    def __update_probability_map(self):
+        """
+        Updates the probability map based on current hits and misses.
+        """
+        for y in range(1, 11):
+            for x in range(1, 11):
+                if self.__mp[y][x]:
+                    self.__prob_map[y][x] = 0
+                else:
+                    self.__prob_map[y][x] = self.__calculate_probability(x, y)
+
+    def __calculate_probability(self, x, y):
+        """
+        Calculates the probability of a ship being at a given coordinate.
+        """
+        probability = 0
+        ship_lengths = [2, 3, 3, 4, 5]
+        for ship_len in ship_lengths:
+            for dx, dy in [(1, 0), (0, 1)]:
+                fits = True
+                for i in range(ship_len):
+                    nx, ny = x + i * dx, y + i * dy
+                    if not (1 <= nx <= 10 and 1 <= ny <= 10) or self.__mp[ny][nx]:
+                        fits = False
+                        break
+                if fits:
+                    probability += 1
+        return probability
+
+    def __reinforcement_update(self, x, y, outcome):
+        """
+        Reinforcement learning update for probability map based on shot outcome.
+        :param x: int - x coordinate
+        :param y: int - y coordinate
+        :param outcome: bool - True if hit, False if miss
+        """
+        adjustment = 3 if outcome else -2
+        ship_lengths = [2, 3, 3, 4, 5]
+        for ship_len in ship_lengths:
+            for dx, dy in [(1, 0), (0, 1)]:
+                for i in range(ship_len):
+                    nx, ny = x - i * dx, y - i * dy
+                    if 1 <= nx <= 10 and 1 <= ny <= 10 and not self.__mp[ny][nx]:
+                        self.__prob_map[ny][nx] = max(0, self.__prob_map[ny][nx] + adjustment)
+
+    @staticmethod
+    def __rd(start: int, end: int):
+        rd.seed(dt.datetime.now().microsecond)
+        return rd.randint(start, end)
+
+    def __print_map(self):
+        print("\nTime:", self.__time)
+        for i in range(1, 11):
+            for j in range(1, 11):
+                print(self.__mp[i][j], end=" ")
+            print()
 
 class Fati(object):
 

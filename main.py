@@ -39,7 +39,7 @@ class Main(object):
         self.__arrange_frame = None
         self.__game_frame = None
         self.__menu_frame.place_frame()
-        self.__bot = bots.Fati()
+        self.__bot = bots.HardBot()
 
         # Setting HelpFrame
         self.__help_frame = frames.HelpFrame(self)
@@ -125,7 +125,7 @@ class Main(object):
         self.__game_frame.displace_frame()
         self.__menu_frame.place_frame()
         self.__bot = None
-        self.__bot = bots.Fati()
+        self.__bot = bots.HardBot()
 
     def get_shoot(self, sms: str):
         """
