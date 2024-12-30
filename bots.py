@@ -442,6 +442,9 @@ class Fati(object):
                 print(self.__mp[i][j], end=" ")
             print()
 
+import random as rd
+import json
+
 class BattleshipBot:
     def __init__(self):
         self.__x = 0
@@ -452,6 +455,8 @@ class BattleshipBot:
         self.__mp = [[False for _ in range(12)] for _ in range(12)]  # Track visited cells
         self.__Q_map = [[0 for _ in range(12)] for _ in range(12)]  # Q-values for reinforcement learning
         self.__total_shots = 0
+        self.__sequential_index = 0  # Index for sequential targeting
+        self.__sequential_mode = True  # Toggle for sequential shooting
 
         # Ship information
         self.__ship_lengths = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
@@ -460,6 +465,10 @@ class BattleshipBot:
         # Reinforcement data file
         self.__reinforcement_file = "reinforcement_data.json"
         self.load_reinforcement_data()
+
+    def set_sequential_mode(self, mode: bool):
+        """Set the mode for sequential shooting."""
+        self.__sequential_mode = mode
 
     def say(self, sms: str):
         print(f"Bot received command: {sms}")
@@ -500,14 +509,34 @@ class BattleshipBot:
     def __hunt(self):
         max_q = max(self.__Q_map[y][x] for y in range(1, 11) for x in range(1, 11) if not self.__mp[y][x])
         candidates = [(x, y) for x in range(1, 11) for y in range(1, 11)
-                  if not self.__mp[y][x] and self.__Q_map[y][x] == max_q]
+                      if not self.__mp[y][x] and self.__Q_map[y][x] == max_q]
 
-        if candidates:
+        if candidates and max_q > 0:
             self.__x, self.__y = rd.choice(candidates)
         else:
-            self.__x, self.__y = self.__random_shoot()
+            if self.__sequential_mode:
+                self.__x, self.__y = self.__sequential_shoot()
+            else:
+                self.__x, self.__y = self.__random_shoot()
+
         self.__mp[self.__y][self.__x] = True
         return self.__x, self.__y
+
+    def __sequential_shoot(self):
+        while self.__sequential_index < 100:
+            x = self.__sequential_index % 10 + 1
+            y = self.__sequential_index // 10 + 1
+            self.__sequential_index += 1
+
+            if not self.__mp[y][x]:
+                self.__x, self.__y = x, y
+                self.__mp[y][x] = True
+                return x, y
+
+        # Reset if all cells are visited (should not happen normally)
+        self.__sequential_index = 0
+        self.__mp = [[False for _ in range(12)] for _ in range(12)]
+        return self.__sequential_shoot()
 
     def __hit(self):
         result = ()
@@ -572,7 +601,6 @@ class BattleshipBot:
                 if 1 <= nx <= 10 and 1 <= ny <= 10:
                     self.__Q_map[ny][nx] += value / (1 + abs(dx) + abs(dy))  # Decay reward by distance
         self.save_reinforcement_data()  # Save Q-map after updating
-
 
     def __update_remaining_ships(self):
         ship_len = len(self.__last_ship)
